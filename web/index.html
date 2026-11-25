@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Log Tracker</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1a1a1a;--mut:#6b7280;--line:#e3e5e8;--ok:#1a7f37;--warn:#b8860b;--bad:#c62828;--enc:#6b7280;--acc:#0b5cab}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--card:#1e2127;--ink:#eceff3;--mut:#9aa3af;--line:#31363e;--ok:#3fb950;--warn:#d4a72c;--bad:#ef5350;--enc:#9aa3af;--acc:#5aa9ff}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+header{background:#1a1a1a;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+nav{display:flex;gap:6px}
+nav button{background:transparent;border:1px solid #555;color:#ddd;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:14px}
+nav button.on{background:#fff;color:#111;border-color:#fff;font-weight:bold}
+main{max-width:1040px;margin:0 auto;padding:18px 20px 40px}
+.panel{display:none}.panel.on{display:block}
+.card{background:var(--card);border-radius:8px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 3px #0002}
+.card h2{font-size:15px;margin:0 0 10px}
+.intro{color:var(--mut);margin:0 0 12px;line-height:1.45}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button.btn,label.btn{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:14px;display:inline-block}
+button.sec,label.sec{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+select,input[type=text]{padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);font-size:14px}
+input[type=file]{display:none}
+.drop{border:2px dashed var(--line);border-radius:8px;padding:10px;text-align:center;color:var(--mut);margin-top:10px}
+.drop.over{border-color:var(--acc);color:var(--acc)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--card);border-radius:8px;padding:10px 14px;box-shadow:0 1px 3px #0002}
+.stat span{color:var(--mut);font-size:12px}.stat b{display:block;font-size:22px}
+.badge,.stat .badge{display:inline-block;padding:5px 14px;border-radius:14px;color:#fff;font-weight:bold;font-size:14px}
+.PASS,.HEALTHY{background:var(--ok)}.PARTIAL,.DEGRADED{background:var(--warn)}.FAIL,.CRITICAL{background:var(--bad)}
+.row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:13px}
+.row.click{cursor:pointer}.row.click:hover .lab{text-decoration:underline}
+.row.sel .lab{font-weight:bold;color:var(--acc)}
+.lab{width:230px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:14px;border-radius:3px;display:inline-block}.val{font-weight:bold}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+.muted{color:var(--mut)}.hint{font-size:12px;color:var(--mut);margin:6px 0 0}
+.chip{display:inline-block;background:var(--acc);color:#fff;border-radius:12px;padding:3px 10px;margin:0 6px 6px 0;font-size:12px;cursor:pointer}
+.err{background:#fdecea;color:#8a1c1c;border-radius:6px;padding:10px 12px;margin-top:10px}
+.lv-CRITICAL{color:var(--bad);font-weight:bold}.lv-ERROR{color:var(--bad)}
+.scroll{max-height:320px;overflow:auto}
+</style></head><body>
+<header><h1>Log Tracker</h1>
+</header>
+<main>
+
+<!-- ===== Log Tracker ===== -->
+<section id="lt" class="panel on">
+<div class="card"><h2>Scan core-network logs</h2>
+<p class="intro">Scans core-network log files (AMF, SMF, UPF, MME, SGW, HSS), counts errors by node and pattern, finds error bursts and shows the most affected subscribers. Line format: <code>YYYY-MM-DD HH:MM:SS.mmm NODE LEVEL message</code>.</p>
+<div class="controls">
+<button class="btn" id="lt-sample">Load sample (mock) logs</button>
+<label class="btn sec" for="lt-file">Choose log files...</label><input id="lt-file" type="file" multiple accept=".log,.txt">
+</div>
+<div class="drop" id="lt-drop">...or drag and drop .log files here</div>
+<div id="lt-err"></div></div>
+<div id="lt-out"></div>
+</section>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function readFiles(fileList){
+  return Promise.all([...fileList].map(f => new Promise(res => {
+    const fr = new FileReader(); fr.onload = () => res({name: f.name, text: fr.result}); fr.readAsText(f);
+  })));
+}
+function bars(items, color, selected, onPick){
+  if(!items.length) return '<p class="muted">none</p>';
+  const top = Math.max(...items.map(i => i[1])) || 1;
+  return items.map((it, i) => `<div class="row ${onPick?'click':''} ${selected===it[0]?'sel':''}" data-i="${i}">
+    <span class="lab" title="${esc(it[0])}">${esc(it[0])}</span>
+    <span class="bar" style="width:${Math.max(2, it[1]/top*100)}%;background:${color}"></span><span class="val">${it[1]}</span></div>`).join('');
+}
+function wire(el, items, onPick){ el.querySelectorAll('.row.click').forEach(r => r.onclick = () => onPick(items[+r.dataset.i][0])); }
+
+/* ---------------- Log Tracker ---------------- */
+let LT = null, F = {};
+async function ltRun(body){
+  $('lt-err').innerHTML = '';
+  const d = await post('/api/logtracker', body);
+  if(d.error){ $('lt-err').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+  LT = d; F = {}; ltRender();
+}
+function ltRender(){
+  const d = LT;
+  $('lt-out').innerHTML = `
+  <div class="cards">
+    <div class="stat"><span>Overall status</span><b><span class="badge ${d.status}">${d.status}</span></b></div>
+    <div class="stat"><span>Lines parsed</span><b>${d.total}</b></div>
+    <div class="stat"><span>Errors</span><b>${d.error_count}</b></div>
+    <div class="stat"><span>Error rate</span><b>${d.error_rate}%</b></div>
+    <div class="stat"><span>Files</span><b>${d.files.length}</b></div></div>
+  <p class="muted">Time range: ${esc(d.first)} to ${esc(d.last)} &nbsp;|&nbsp; Unparsed lines: ${d.unparsed_count}</p>
+  <div class="card"><h2>Lines by level</h2>${bars(d.levels,'#546e7a')}</div>
+  <div class="card"><h2>Errors by node <span class="muted">(click a bar to filter)</span></h2><div id="b-node"></div></div>
+  <div class="card"><h2>Errors per minute <span class="muted">(click a bar to filter)</span></h2><div id="b-min"></div></div>
+  <div class="card"><h2>Top error patterns <span class="muted">(click a bar to filter)</span></h2><div id="b-sig"></div></div>
+  <div class="card"><h2>Error bursts (5+ errors from one node within 60 s)</h2>
+    <table><tr><th>Node</th><th>Errors</th><th>Time</th></tr>${d.bursts.map(b=>`<tr><td>${esc(b.node)}</td><td>${b.count}</td><td>${b.start} - ${b.end}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">none</td></tr>'}</table></div>
+  <div class="card"><h2>Most affected subscribers (IMSI)</h2>
+    <table><tr><th>IMSI</th><th>Errors</th></tr>${d.imsis.map(i=>`<tr><td>${esc(i[0])}</td><td>${i[1]}</td></tr>`).join('')||'<tr><td colspan="2" class="muted">none</td></tr>'}</table></div>
+  <div class="card"><h2>Error explorer</h2>
+    <div class="controls"><input type="text" id="x-q" placeholder="Search message or IMSI..." value="${esc(F.q||'')}">
+    <select id="x-lv"><option value="">All levels</option><option>ERROR</option><option>CRITICAL</option></select>
+    <button class="btn sec" id="x-clear">Clear filters</button></div>
+    <div id="x-chips" style="margin-top:8px"></div><div id="x-count" class="hint"></div>
+    <div class="scroll"><table><thead><tr><th>Time</th><th>Node</th><th>Level</th><th>Message</th></tr></thead><tbody id="x-rows"></tbody></table></div></div>`;
+  ltBars();
+  $('x-q').oninput = e => { F.q = e.target.value; ltExplorer(); };
+  $('x-lv').onchange = e => { F.level = e.target.value; ltExplorer(); };
+  $('x-clear').onclick = () => { F = {}; $('x-q').value=''; $('x-lv').value=''; ltBars(); ltExplorer(); };
+  ltExplorer();
+}
+function toggle(key, val){ F[key] = (F[key] === val) ? undefined : val; ltBars(); ltExplorer(); }
+function ltBars(){
+  const d = LT;
+  $('b-node').innerHTML = bars(d.nodes,'#c62828',F.node,true); wire($('b-node'), d.nodes, v => toggle('node', v));
+  $('b-min').innerHTML = bars(d.timeline,'#ef6c00',F.minute,true); wire($('b-min'), d.timeline, v => toggle('minute', v));
+  $('b-sig').innerHTML = bars(d.patterns,'#6a1b9a',F.sig,true); wire($('b-sig'), d.patterns, v => toggle('sig', v));
+}
+function ltExplorer(){
+  const q = (F.q||'').toLowerCase();
+  const rows = LT.errors.filter(e => (!F.node||e.node===F.node) && (!F.minute||e.minute===F.minute) &&
+    (!F.sig||e.sig===F.sig) && (!F.level||e.level===F.level) && (!q||e.msg.toLowerCase().includes(q)));
+  const chips = [['node','Node'],['minute','Minute'],['sig','Pattern']].filter(([k])=>F[k])
+    .map(([k,l]) => `<span class="chip" data-k="${k}">${l}: ${esc(F[k])} &times;</span>`).join('');
+  $('x-chips').innerHTML = chips;
+  $('x-chips').querySelectorAll('.chip').forEach(c => c.onclick = () => { F[c.dataset.k] = undefined; ltBars(); ltExplorer(); });
+  $('x-count').textContent = `Showing ${Math.min(rows.length,200)} of ${rows.length} error lines`;
+  $('x-rows').innerHTML = rows.slice(0,200).map(e => `<tr><td>${e.time}</td><td>${esc(e.node)}</td><td class="lv-${e.level}">${e.level}</td><td>${esc(e.msg)}</td></tr>`).join('');
+}
+$('lt-sample').onclick = () => ltRun({sample:true});
+async function ltFiles(fl){ if(fl.length) ltRun({files: await readFiles(fl)}); }
+$('lt-file').onchange = e => ltFiles(e.target.files);
+const drop = $('lt-drop');
+['dragover','dragenter'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => ltFiles(e.dataTransfer.files));
+
+</script></body></html>

@@ -14,6 +14,7 @@ It works as a **local web app** and as a **command-line tool**.
 The sample logs are **mock logs** made by `generate_mock_logs.py` with a few planted incidents
 (a PFCP association loss on the UPF, Diameter timeouts, authentication failures, an SMF restart).
 
+![Dashboard](dashboard.png)
 ## Web app
 ```bash
 python app.py                 # opens http://127.0.0.1:8000

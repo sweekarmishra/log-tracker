@@ -13,8 +13,18 @@ AMF, SMF, UPF, MME, SGW and HSS and shows:
 It works as a **local web app** and as a **command-line tool**.
 The sample logs are **mock logs** made by `generate_mock_logs.py` with a few planted incidents
 (a PFCP association loss on the UPF, Diameter timeouts, authentication failures, an SMF restart).
-
+## Dashboard
 ![Dashboard](dashboard.png)
+
+The web dashboard shows, for the logs you load:
+- an overall status badge (HEALTHY / DEGRADED / CRITICAL), lines parsed, error count and error rate
+- bar charts of lines by level, errors by node, errors per minute and top error patterns
+- a table of error bursts and a table of the most affected subscribers (IMSI)
+- an **error explorer**: click a bar (node, minute or pattern) to filter the error list,
+  or search the messages and filter by level
+
+In the sample logs, the chart shows a spike at 10:04 where the UPF loses its PFCP association
+with the SMF, followed by SMF session failures and a restart.
 ## Web app
 ```bash
 python app.py                 # opens http://127.0.0.1:8000
